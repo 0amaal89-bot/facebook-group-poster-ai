@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AutoGroupPilot - AI Facebook Group Poster",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Safe, smart multi-group poster for Facebook with human-like anti-ban pacing, Cloudflare Workers AI rewriting, and auto first-comment.",
   "icons": {
     "16": "icons/icon16.png",
@@ -18,8 +18,7 @@
     "default_title": "AutoGroupPilot"
   },
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "permissions": [
     "storage",

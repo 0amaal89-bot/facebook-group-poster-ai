@@ -2,6 +2,7 @@
  * Spintax & Template Engine for AutoGroupPilot
  * Handles nested spintax syntax: {Hello|Hi|{Hey|Greetings}}
  * Replaces variables like {group_name}, {date}, etc.
+ * Works universally across ServiceWorker, Content Scripts, and Window.
  */
 
 class SpintaxEngine {
@@ -43,7 +44,6 @@ class SpintaxEngine {
       result = result.replace(regex, value || '');
     }
 
-    // Built-in date variable
     const now = new Date();
     result = result.replace(/\{today\}|\{\{today\}\}/gi, now.toLocaleDateString());
     return result;
@@ -69,9 +69,9 @@ class SpintaxEngine {
   }
 }
 
-// Support both ES module and plain script injection
+// Universal export: works in ServiceWorker (importScripts), Content Scripts, Window, Node
+const _globalScope = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : self);
+_globalScope.SpintaxEngine = SpintaxEngine;
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = SpintaxEngine;
-} else if (typeof window !== 'undefined') {
-  window.SpintaxEngine = SpintaxEngine;
 }

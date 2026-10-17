@@ -1,6 +1,7 @@
 /**
  * Humanizer & Anti-Ban Safety Engine for AutoGroupPilot
  * Mimics organic user interaction to prevent Facebook spam detection.
+ * Works universally across ServiceWorker, Content Scripts, and Window.
  */
 
 class Humanizer {
@@ -57,7 +58,6 @@ class Humanizer {
   static getJitterDelay(minSec, maxSec) {
     const min = minSec * 1000;
     const max = maxSec * 1000;
-    // Box-Muller transform for gaussian-like distribution
     const u1 = Math.random();
     const u2 = Math.random();
     const randStdNormal = Math.sqrt(-2.0 * Math.log(u1 || 0.0001)) * Math.cos(2.0 * Math.PI * u2);
@@ -72,6 +72,7 @@ class Humanizer {
    * @param {number} durationSeconds 
    */
   static async simulateFeedPresence(durationSeconds = 4) {
+    if (typeof window === 'undefined') return;
     const startTime = Date.now();
     const endTime = startTime + durationSeconds * 1000;
 
@@ -83,7 +84,6 @@ class Humanizer {
       });
       await this.sleep(Math.floor(Math.random() * 900) + 600);
 
-      // Occasional small reverse scroll (like reading back)
       if (Math.random() > 0.6) {
         window.scrollBy({
           top: -Math.floor(scrollStep * 0.4),
@@ -93,7 +93,6 @@ class Humanizer {
       }
     }
 
-    // Scroll back to top where composer lives
     window.scrollTo({ top: 0, behavior: 'smooth' });
     await this.sleep(800);
   }
@@ -105,20 +104,18 @@ class Humanizer {
    * @param {number} baseSpeedMs 
    */
   static async simulateHumanTyping(element, text, baseSpeedMs = 45) {
-    if (!element || !text) return;
+    if (!element || !text || typeof document === 'undefined') return;
 
     element.focus();
 
     for (let i = 0; i < text.length; i++) {
       const char = text[i];
 
-      // Dispatch realistic keyboard events
       const keydown = new KeyboardEvent('keydown', { key: char, bubbles: true });
       const keypress = new KeyboardEvent('keypress', { key: char, bubbles: true });
       element.dispatchEvent(keydown);
       element.dispatchEvent(keypress);
 
-      // Insert character into editable
       document.execCommand('insertText', false, char);
 
       const inputEvent = new InputEvent('input', {
@@ -129,7 +126,6 @@ class Humanizer {
       });
       element.dispatchEvent(inputEvent);
 
-      // Natural pause for spaces and punctuation
       let delay = baseSpeedMs + Math.random() * 35;
       if (char === '.' || char === '!' || char === '?') {
         delay += Math.random() * 300 + 150;
@@ -146,7 +142,7 @@ class Humanizer {
    * @param {HTMLElement} element 
    */
   static async simulateHumanClick(element) {
-    if (!element) return;
+    if (!element || typeof window === 'undefined') return;
     const rect = element.getBoundingClientRect();
     const x = rect.left + rect.width / 2 + (Math.random() * 8 - 4);
     const y = rect.top + rect.height / 2 + (Math.random() * 8 - 4);
@@ -166,9 +162,9 @@ class Humanizer {
   }
 }
 
-// Support both ES module and plain script injection
+// Universal export: works in ServiceWorker (importScripts), Content Scripts, Window, Node
+const _humanizerRoot = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : self);
+_humanizerRoot.Humanizer = Humanizer;
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Humanizer;
-} else if (typeof window !== 'undefined') {
-  window.Humanizer = Humanizer;
 }

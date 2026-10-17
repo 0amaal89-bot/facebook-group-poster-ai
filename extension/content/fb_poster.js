@@ -13,6 +13,7 @@
   let userBundles = {};
   let currentModalPostUrl = '';
   let activeModalPreset = 'balanced';
+  let modalSelectedIds = new Set();
 
   // Load saved groups on load
   chrome.storage.local.get(['agp_groups', 'agp_bundles'], res => {
@@ -39,130 +40,165 @@
 
   let injectionDebounce = null;
 
+  // Multi-lingual keywords for detecting Facebook action bar elements
+  const ACTION_KEYWORDS = [
+    'share', 'partager', 'مشاركة', 'compartir', 'condividi', 'teilen', 'delen',
+    'comment', 'commenter', 'تعليق', 'comentar', 'commenta', 'kommentieren',
+    'like', 'react', 'j’aime', 'أعجبني', 'تفاعل', 'me gusta', 'mi piace', 'gefällt mir'
+  ];
+
   function scanAndInjectShareButtons() {
-    // Locate all post containers in Facebook feed / watch / profile
-    const postCandidates = document.querySelectorAll(
-      'div[role="article"], div[data-pagelet*="FeedUnit"], div[data-ad-preview="message"]'
-    );
+    try {
+      // Strategy 1: Find all interactive action buttons in posts/videos
+      const clickableCandidates = document.querySelectorAll(
+        'div[role="button"], span[role="button"], a[role="button"], div[aria-label], span[aria-label]'
+      );
 
-    postCandidates.forEach(candidate => {
-      const postArticle = candidate.closest('div[role="article"]') || candidate;
-      if (!postArticle || postArticle.querySelector('.agp-share-btn-wrapper')) return;
+      clickableCandidates.forEach(el => {
+        const label = (el.getAttribute('aria-label') || el.innerText || '').toLowerCase().trim();
+        if (!label) return;
 
-      // Locate the action bar (where Like, Comment, Share buttons reside)
-      const actionBar = findActionBar(postArticle);
-      if (!actionBar) return;
+        // Check if this is a Share or Comment button
+        const isShareOrComment = ACTION_KEYWORDS.some(k => label.includes(k));
+        if (!isShareOrComment) return;
 
-      // Create Share to groups button wrapper
-      const btnWrapper = document.createElement('div');
-      btnWrapper.className = 'agp-share-btn-wrapper';
-      btnWrapper.innerHTML = `
-        <button type="button" class="agp-share-to-groups-btn" title="Broadcast this post to multiple Facebook groups using AutoGroupPilot">
-          ${SHARE_ICON_SVG}
-          <span>Share to groups</span>
-        </button>
-      `;
+        // Find the parent action bar container (the flex row containing these buttons)
+        const row = findActionBarRow(el);
+        if (!row) return;
 
-      const btn = btnWrapper.querySelector('.agp-share-to-groups-btn');
-      btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openShareModal(postArticle);
+        // If button is already injected in this row, skip
+        if (row.querySelector('.agp-share-btn-wrapper')) return;
+
+        // Create and inject button
+        const btnWrapper = createShareButtonWrapper(row);
+        
+        // Prefer placing right after the Share button, or append to row
+        const shareBtn = findShareButtonInRow(row);
+        if (shareBtn && shareBtn.parentNode === row) {
+          row.insertBefore(btnWrapper, shareBtn.nextSibling);
+        } else {
+          row.appendChild(btnWrapper);
+        }
       });
-
-      // Insert adjacent to the native Share button or at the end of the action bar
-      const nativeShareBtn = findNativeShareButton(actionBar);
-      if (nativeShareBtn && nativeShareBtn.parentNode) {
-        nativeShareBtn.parentNode.insertBefore(btnWrapper, nativeShareBtn.nextSibling);
-      } else {
-        actionBar.appendChild(btnWrapper);
-      }
-    });
+    } catch (err) {
+      console.warn('[AutoGroupPilot] Error during button injection scan:', err);
+    }
   }
 
-  function findActionBar(postArticle) {
-    // 1. Search for explicit toolbar role
-    const toolbar = postArticle.querySelector('div[role="toolbar"]');
-    if (toolbar) return toolbar;
+  function findActionBarRow(btnElement) {
+    let curr = btnElement;
+    for (let i = 0; i < 5; i++) {
+      if (!curr || !curr.parentElement) break;
+      curr = curr.parentElement;
 
-    // 2. Search for container having Like / Comment / Share labels
-    const actionButtons = postArticle.querySelectorAll(
-      'div[aria-label*="Like"], div[aria-label*="React"], div[aria-label*="Comment"], div[aria-label*="Share"], div[aria-label*="Send this"]'
-    );
-
-    if (actionButtons.length > 0) {
-      // Find the closest common parent row
-      const firstBtn = actionButtons[0];
-      const row = firstBtn.closest('div[style*="flex"], div[class*="x9f619"]') || firstBtn.parentElement;
-      return row;
+      // Check if this container has multiple buttons (typical of FB action bar)
+      const buttons = curr.querySelectorAll('div[role="button"], span[role="button"], div[tabindex="0"]');
+      if (buttons.length >= 2) {
+        // Confirm it's a horizontal flex/grid row
+        const style = window.getComputedStyle(curr);
+        if (style.display === 'flex' || style.display === 'inline-flex' || style.display === 'grid' || style.flexDirection === 'row') {
+          return curr;
+        }
+      }
     }
-
     return null;
   }
 
-  function findNativeShareButton(actionBar) {
-    const candidates = actionBar.querySelectorAll('div[role="button"], span');
+  function findShareButtonInRow(row) {
+    const candidates = row.querySelectorAll('div[role="button"], span, a');
     for (const c of candidates) {
-      const label = (c.getAttribute('aria-label') || c.innerText || '').toLowerCase();
-      if (label.includes('share') || label.includes('send this to')) {
+      const text = (c.getAttribute('aria-label') || c.innerText || '').toLowerCase();
+      if (text.includes('share') || text.includes('partager') || text.includes('مشاركة') || text.includes('compartir')) {
         return c.closest('div[role="button"]') || c;
       }
     }
     return null;
   }
 
-  // Setup DOM Mutation Observer to inject buttons as user scrolls
+  function createShareButtonWrapper(parentRow) {
+    const btnWrapper = document.createElement('div');
+    btnWrapper.className = 'agp-share-btn-wrapper';
+    btnWrapper.innerHTML = `
+      <button type="button" class="agp-share-to-groups-btn" title="Share this post to multiple Facebook groups">
+        ${SHARE_ICON_SVG}
+        <span>Share to groups</span>
+      </button>
+    `;
+
+    const btn = btnWrapper.querySelector('.agp-share-to-groups-btn');
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openShareModal(parentRow);
+    });
+
+    return btnWrapper;
+  }
+
+  // Setup DOM Mutation Observer
   const observer = new MutationObserver(() => {
     if (injectionDebounce) clearTimeout(injectionDebounce);
-    injectionDebounce = setTimeout(scanAndInjectShareButtons, 600);
+    injectionDebounce = setTimeout(scanAndInjectShareButtons, 500);
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
-  setTimeout(scanAndInjectShareButtons, 1500);
+  setTimeout(scanAndInjectShareButtons, 1000);
+  setInterval(scanAndInjectShareButtons, 3000); // Periodic fallback for dynamic feeds
 
   // -------------------------------------------------------------------------
   // 2. IN-FEED SHARING MODAL DIALOG
   // -------------------------------------------------------------------------
-  function extractPostDetails(postArticle) {
-    // 1. Find post permalink / video link / reel link
+  function extractPostDetails(actionRow) {
     let postUrl = window.location.href;
-    const links = postArticle.querySelectorAll('a[href]');
+    let postText = '';
 
-    for (const a of links) {
-      const href = a.href;
-      if (
-        href.includes('/posts/') ||
-        href.includes('/permalink/') ||
-        href.includes('/videos/') ||
-        href.includes('/watch/') ||
-        href.includes('/reel/') ||
-        href.includes('story_fbid=')
-      ) {
-        // Strip out noisy tracking params for a clean URL
-        try {
-          const u = new URL(href);
-          postUrl = `${u.origin}${u.pathname}`;
-          if (u.searchParams.has('v')) postUrl += `?v=${u.searchParams.get('v')}`;
-          if (u.searchParams.has('story_fbid')) postUrl += `?story_fbid=${u.searchParams.get('story_fbid')}&id=${u.searchParams.get('id')}`;
-        } catch (e) {
-          postUrl = href.split('?')[0];
+    // Climb up to the full post container
+    let postContainer = actionRow.closest('div[role="article"]') ||
+                        actionRow.closest('div[data-pagelet*="FeedUnit"]') ||
+                        actionRow.closest('div[data-virtualized="false"]') ||
+                        actionRow.closest('div[role="main"]') ||
+                        actionRow.parentElement?.parentElement;
+
+    if (postContainer) {
+      // 1. Look for post permalink / video link
+      const links = postContainer.querySelectorAll('a[href]');
+      for (const a of links) {
+        const href = a.href;
+        if (
+          href.includes('/posts/') ||
+          href.includes('/permalink/') ||
+          href.includes('/videos/') ||
+          href.includes('/watch/') ||
+          href.includes('/reel/') ||
+          href.includes('story_fbid=') ||
+          href.includes('fbid=')
+        ) {
+          try {
+            const u = new URL(href);
+            postUrl = `${u.origin}${u.pathname}`;
+            if (u.searchParams.has('v')) postUrl += `?v=${u.searchParams.get('v')}`;
+            if (u.searchParams.has('story_fbid')) {
+              postUrl += `?story_fbid=${u.searchParams.get('story_fbid')}&id=${u.searchParams.get('id')}`;
+            }
+          } catch (e) {
+            postUrl = href.split('?')[0];
+          }
+          break;
         }
-        break;
+      }
+
+      // 2. Extract caption text
+      const textContainers = postContainer.querySelectorAll('div[data-ad-preview="message"], div[dir="auto"]');
+      for (const tc of textContainers) {
+        const content = tc.innerText.trim();
+        if (content.length > 20 && !content.includes('Share') && !content.includes('Like')) {
+          postText = content;
+          break;
+        }
       }
     }
 
-    // 2. Extract caption text
-    let text = '';
-    const textContainers = postArticle.querySelectorAll('div[data-ad-preview="message"], div[dir="auto"]');
-    for (const tc of textContainers) {
-      const content = tc.innerText.trim();
-      if (content.length > 20 && !content.includes('Share') && !content.includes('Like')) {
-        text = content;
-        break;
-      }
-    }
-
-    return { postUrl, text };
+    return { postUrl, postText };
   }
 
   function ensureModalInDom() {
@@ -192,16 +228,16 @@
           <!-- Post URL Target -->
           <div class="agp-target-box">
             <span class="agp-target-badge">Target Post</span>
-            <span class="agp-target-url" id="agpTargetUrlDisplay">https://facebook.com/...</span>
+            <input type="text" id="agpTargetUrlDisplay" style="flex: 1; background: transparent; border: none; color: #38bdf8; font-size: 12px; outline: none;" value="https://facebook.com/...">
           </div>
 
           <!-- Caption & Spintax -->
           <div>
             <div class="agp-field-label">
-              <span>Intro Message / Caption (Optional)</span>
+              <span>Intro Caption / Thoughts (Optional)</span>
               <span id="agpModalSpintaxBadge" style="color: #60a5fa; font-size: 11px;">Supports {A|B}</span>
             </div>
-            <textarea class="agp-caption-input" id="agpModalCaption" placeholder="Check out this post! (Supports Spintax or AI rewriting per group)..."></textarea>
+            <textarea class="agp-caption-input" id="agpModalCaption" placeholder="Write an intro message (or leave blank to share post directly)..."></textarea>
           </div>
 
           <!-- Cloudflare AI Spin Bar -->
@@ -257,15 +293,15 @@
         <div class="agp-modal-body agp-sharing-active-view" id="agpModalProgressBody">
           <div class="agp-header-titles" style="text-align: center; margin-bottom: 12px;">
             <h2 id="agpModalLiveStatusText">Sharing Campaign Active</h2>
-            <span id="agpModalLiveGroupName">Posting to group...</span>
+            <span id="agpModalLiveGroupName" style="color: #94a3b8; font-size: 13px;">Preparing first group...</span>
           </div>
 
           <div class="agp-progress-track">
             <div class="agp-progress-fill" id="agpModalProgressBar"></div>
           </div>
 
-          <p style="font-size: 13px; color: #94a3b8;" id="agpModalCounterText">0 / 0 Groups Shared</p>
-          <p style="font-size: 12px; color: #38bdf8; font-weight: 600; margin-top: 6px;" id="agpModalCountdownText">Next post in: --</p>
+          <p style="font-size: 13px; color: #94a3b8; text-align: center;" id="agpModalCounterText">0 / 0 Groups Shared</p>
+          <p style="font-size: 12px; color: #38bdf8; font-weight: 600; margin-top: 6px; text-align: center;" id="agpModalCountdownText">Next post in: --</p>
         </div>
 
         <!-- Footer -->
@@ -335,18 +371,19 @@
     return overlay;
   }
 
-  function openShareModal(postArticle) {
-    const details = extractPostDetails(postArticle);
+  function openShareModal(actionRow) {
+    const details = extractPostDetails(actionRow);
     currentModalPostUrl = details.postUrl;
 
     const overlay = ensureModalInDom();
-    document.getElementById('agpTargetUrlDisplay').textContent = details.postUrl;
-    document.getElementById('agpTargetUrlDisplay').title = details.postUrl;
+    const urlInput = document.getElementById('agpTargetUrlDisplay');
+    urlInput.value = details.postUrl;
 
     // Reset view to normal
     document.getElementById('agpModalNormalBody').style.display = 'flex';
-    document.getElementById('agpModalProgressBody').classList.remove('active');
-    document.getElementById('agpModalProgressBody').style.display = 'none';
+    const progressBody = document.getElementById('agpModalProgressBody');
+    progressBody.classList.remove('active');
+    progressBody.style.display = 'none';
     document.getElementById('agpModalBtnStartShare').style.display = 'inline-flex';
 
     // Populate Groups List
@@ -362,21 +399,43 @@
     if (overlay) overlay.classList.remove('agp-visible');
   }
 
-  let modalSelectedIds = new Set();
-
   function renderModalGroupsList(filterQuery = '') {
     const list = document.getElementById('agpModalGroupsList');
     if (!list) return;
 
     list.innerHTML = '';
+
+    if (allUserGroups.length === 0) {
+      list.innerHTML = `
+        <div style="padding: 16px; text-align: center; color: #94a3b8; font-size: 12px;">
+          <p style="margin-bottom: 8px;">No groups synced yet.</p>
+          <button type="button" id="agpModalBtnDirectSync" style="background: #1877f2; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+            🔄 Sync My Facebook Groups Now
+          </button>
+        </div>`;
+      
+      const syncBtn = document.getElementById('agpModalBtnDirectSync');
+      if (syncBtn) {
+        syncBtn.onclick = async () => {
+          syncBtn.textContent = 'Scanning Facebook...';
+          syncBtn.disabled = true;
+          const groups = await scanUserGroups();
+          allUserGroups = groups;
+          modalSelectedIds = new Set(groups.map(g => g.id));
+          chrome.storage.local.set({ agp_groups: groups, agp_selected_ids: Array.from(modalSelectedIds) });
+          renderModalGroupsList();
+          renderModalBundles();
+        };
+      }
+      updateModalSelectedBadge();
+      return;
+    }
+
     const q = filterQuery.toLowerCase().trim();
     const filtered = allUserGroups.filter(g => !q || g.name.toLowerCase().includes(q));
 
     if (filtered.length === 0) {
-      list.innerHTML = `
-        <div style="padding: 16px; text-align: center; color: #94a3b8; font-size: 12px;">
-          ${allUserGroups.length === 0 ? 'No groups synced yet. Open extension popup to sync groups.' : 'No groups match filter.'}
-        </div>`;
+      list.innerHTML = `<div style="padding: 14px; text-align: center; color: #94a3b8; font-size: 12px;">No groups match filter.</div>`;
       updateModalSelectedBadge();
       return;
     }
@@ -459,11 +518,11 @@
 
     const selectedGroups = allUserGroups.filter(g => modalSelectedIds.has(g.id));
     const rawCaption = document.getElementById('agpModalCaption').value.trim();
+    const finalUrl = document.getElementById('agpTargetUrlDisplay').value.trim() || currentModalPostUrl;
 
-    // Construct post text containing caption + link
     const postText = rawCaption
-      ? `${rawCaption}\n\n${currentModalPostUrl}`
-      : currentModalPostUrl;
+      ? `${rawCaption}\n\n${finalUrl}`
+      : finalUrl;
 
     const presetSettings = {
       maximum: { minDelaySec: 90, maxDelaySec: 210, breakEvery: 6, breakDurationMinutes: 12 },
@@ -551,6 +610,7 @@
     return !!(
       document.querySelector('[aria-label="Your profile"]') ||
       document.querySelector('[aria-label="Account"]') ||
+      document.querySelector('[aria-label*="الملف الشخصي"]') ||
       document.cookie.includes('c_user')
     );
   }
@@ -558,9 +618,9 @@
   async function scanUserGroups() {
     const groups = new Map();
 
-    for (let i = 0; i < 5; i++) {
-      window.scrollBy({ top: 800, behavior: 'smooth' });
-      await Humanizer.sleep(1200);
+    for (let i = 0; i < 6; i++) {
+      window.scrollBy({ top: 900, behavior: 'smooth' });
+      await (typeof Humanizer !== 'undefined' ? Humanizer.sleep(1200) : new Promise(r => setTimeout(r, 1200)));
 
       const links = document.querySelectorAll('a[href*="/groups/"]');
       links.forEach(a => {
@@ -596,7 +656,7 @@
       return { success: false, checkpoint: true, error: checkpoint };
     }
 
-    if (safetyConfig?.scrollPresence) {
+    if (safetyConfig?.scrollPresence && typeof Humanizer !== 'undefined') {
       await Humanizer.simulateFeedPresence(3);
     }
 
@@ -608,15 +668,19 @@
       };
     }
 
-    await Humanizer.simulateHumanClick(composerTrigger);
-    await Humanizer.sleep(2000);
+    if (typeof Humanizer !== 'undefined') {
+      await Humanizer.simulateHumanClick(composerTrigger);
+    } else {
+      composerTrigger.click();
+    }
+    await new Promise(r => setTimeout(r, 2000));
 
     const editor = await findRichEditor(8000);
     if (!editor) {
       return { success: false, error: 'Could not activate the post text editor.' };
     }
 
-    if (safetyConfig?.humanTyping) {
+    if (safetyConfig?.humanTyping && typeof Humanizer !== 'undefined') {
       await Humanizer.simulateHumanTyping(editor, postText, 35);
     } else {
       editor.focus();
@@ -625,7 +689,7 @@
       editor.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
-    await Humanizer.sleep(3000);
+    await new Promise(r => setTimeout(r, 3000));
 
     const postButton = await findSubmitPostButton(6000);
     if (!postButton) {
@@ -636,10 +700,14 @@
       return { success: false, error: 'Post button is disabled. Group may require admin approval or missing fields.' };
     }
 
-    await Humanizer.simulateHumanClick(postButton);
+    if (typeof Humanizer !== 'undefined') {
+      await Humanizer.simulateHumanClick(postButton);
+    } else {
+      postButton.click();
+    }
     console.log('[AutoGroupPilot] Post button clicked. Awaiting confirmation...');
 
-    await Humanizer.sleep(5000);
+    await new Promise(r => setTimeout(r, 5000));
 
     const postBlock = checkForSecurityWarnings();
     if (postBlock) {
@@ -649,7 +717,7 @@
     let commentPosted = false;
     if (firstComment && firstComment.trim()) {
       try {
-        await Humanizer.sleep(4000);
+        await new Promise(r => setTimeout(r, 4000));
         commentPosted = await executeFirstComment(firstComment);
       } catch (commentErr) {
         console.warn('[AutoGroupPilot] First comment execution failed:', commentErr);
@@ -671,6 +739,10 @@
       'div[aria-label*="Create a public post"]',
       'div[aria-label*="Write something"]',
       'div[aria-label*="Create a post"]',
+      'div[aria-label*="انشئ منشوراً"]',
+      'div[aria-label*="اكتب شيئاً"]',
+      'div[aria-label*="Créer une publication"]',
+      'div[aria-label*="Crear publicación"]'
     ];
 
     while (Date.now() - startTime < timeoutMs) {
@@ -683,13 +755,16 @@
             text.includes('create a public post') ||
             text.includes('what\'s on your mind') ||
             text.includes('create a post') ||
-            text.includes('write a post')
+            text.includes('write a post') ||
+            text.includes('اكتب شيئاً') ||
+            text.includes('إنشاء منشور') ||
+            text.includes('بما تفكر')
           ) {
             return el.closest('div[role="button"]') || el;
           }
         }
       }
-      await Humanizer.sleep(500);
+      await new Promise(r => setTimeout(r, 500));
     }
     return null;
   }
@@ -702,47 +777,53 @@
         const textbox = dialog.querySelector('div[role="textbox"][contenteditable="true"]');
         if (textbox) return textbox;
       }
-      await Humanizer.sleep(400);
+      await new Promise(r => setTimeout(r, 400));
     }
     return null;
   }
 
   async function findSubmitPostButton(timeoutMs = 6000) {
     const startTime = Date.now();
+    const postLabels = ['post', 'publish', 'share', 'نشر', 'publier', 'publicar'];
+
     while (Date.now() - startTime < timeoutMs) {
       const dialog = document.querySelector('div[role="dialog"]');
       if (dialog) {
         const buttons = dialog.querySelectorAll('div[role="button"], button');
         for (const btn of buttons) {
           const label = (btn.getAttribute('aria-label') || btn.innerText || '').trim().toLowerCase();
-          if (label === 'post' || label === 'publish' || label === 'share') {
+          if (postLabels.some(l => label === l || label.includes(l))) {
             return btn;
           }
         }
       }
-      await Humanizer.sleep(400);
+      await new Promise(r => setTimeout(r, 400));
     }
     return null;
   }
 
   async function executeFirstComment(commentText) {
-    const commentInputs = document.querySelectorAll('div[aria-label*="Write a comment"][role="textbox"], form textarea');
+    const commentInputs = document.querySelectorAll('div[aria-label*="Write a comment"][role="textbox"], form textarea, div[aria-label*="اكتب تعليقاً"]');
     if (!commentInputs || commentInputs.length === 0) return false;
 
     const commentBox = commentInputs[0];
-    await Humanizer.simulateHumanClick(commentBox);
-    await Humanizer.sleep(1000);
+    if (typeof Humanizer !== 'undefined') {
+      await Humanizer.simulateHumanClick(commentBox);
+    } else {
+      commentBox.click();
+    }
+    await new Promise(r => setTimeout(r, 1000));
 
     commentBox.focus();
     document.execCommand('insertText', false, commentText);
     commentBox.dispatchEvent(new Event('input', { bubbles: true }));
 
-    await Humanizer.sleep(1500);
+    await new Promise(r => setTimeout(r, 1500));
 
     const enterDown = new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true });
     commentBox.dispatchEvent(enterDown);
 
-    await Humanizer.sleep(2000);
+    await new Promise(r => setTimeout(r, 2000));
     return true;
   }
 
@@ -755,6 +836,8 @@
       'account restricted',
       'security check',
       'confirm your identity',
+      'تم حظرك مؤقتًا',
+      'نحن نضع قيوداً'
     ];
 
     for (const w of warnings) {

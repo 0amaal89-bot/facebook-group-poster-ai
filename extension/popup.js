@@ -142,6 +142,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         btnAiSpinPreview.textContent = 'Spin Preview';
         btnAiSpinPreview.disabled = false;
 
+        if (chrome.runtime.lastError) {
+          alert('Background service worker reconnecting. Please try again.');
+          return;
+        }
+
         if (response && response.success && response.variation) {
           aiSpinPreviewText.textContent = response.variation;
           aiSpinPreview.style.display = 'block';
@@ -167,6 +172,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     chrome.runtime.sendMessage(
       { action: 'TEST_CLOUDFLARE_AI', workerUrl },
       response => {
+        if (chrome.runtime.lastError) {
+          workerTestStatus.textContent = '🔴 Service worker waking up, try again.';
+          workerTestStatus.style.color = '#EF4444';
+          return;
+        }
+
         if (response && response.success) {
           workerTestStatus.textContent = `🟢 Connected! Model: ${response.data.primaryModel} (${response.data.status})`;
           workerTestStatus.style.color = '#22C55E';
@@ -193,21 +204,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnSyncFbGroups.disabled = true;
 
     try {
-      // Find or open Facebook groups page
       const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
       let fbTab = tabs[0];
       if (!fbTab) {
         fbTab = await chrome.tabs.create({ url: 'https://www.facebook.com/groups/joins/' });
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(r => setTimeout(r, 4500));
       }
 
       chrome.tabs.sendMessage(fbTab.id, { action: 'SCAN_GROUPS' }, response => {
         btnSyncFbGroups.textContent = 'Sync from Facebook';
         btnSyncFbGroups.disabled = false;
 
+        if (chrome.runtime.lastError) {
+          alert('Could not connect to Facebook tab. Please refresh your Facebook page and make sure you are logged in.');
+          return;
+        }
+
         if (response && response.success && response.groups && response.groups.length > 0) {
           allGroups = response.groups;
-          // Select all by default on new sync
           selectedGroupIds = new Set(allGroups.map(g => g.id));
           chrome.storage.local.set({
             agp_groups: allGroups,
@@ -216,7 +230,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           renderGroupsList();
           alert(`Successfully synced ${allGroups.length} Facebook groups!`);
         } else {
-          alert('Could not auto-detect groups. Please open https://www.facebook.com/groups/joins/ in a tab and make sure you are logged in.');
+          alert('Could not auto-detect groups. Please open https://www.facebook.com/groups/joins/ in your browser and ensure you are logged in.');
         }
       });
     } catch (e) {
@@ -410,28 +424,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   function updateUIWithState(state) {
     if (!state) return;
 
-    // Status Pill
     statusPill.textContent = state.status.toUpperCase();
     statusPill.className = `status-indicator ${state.status}`;
 
-    // Pause / Resume button text
     btnPauseResume.textContent = state.status === 'running' ? 'Pause' : 'Resume';
     btnPauseResume.disabled = state.status === 'idle' || state.status === 'completed';
     btnStopCampaign.disabled = state.status === 'idle';
 
-    // Progress Bar & Counts
     const total = state.queue.length;
     const current = state.currentIndex;
     const pct = total > 0 ? Math.round((current / total) * 100) : 0;
     progressBar.style.width = `${pct}%`;
     monitorProgressText.textContent = `${current} / ${total} Groups (${pct}%)`;
 
-    // Stats
     statSuccess.textContent = state.stats.successCount;
     statFailed.textContent = state.stats.failCount;
     statToday.textContent = `${state.stats.todayCount} / ${state.config.dailyLimit}`;
 
-    // Render Logs
     renderLogs(state.logs);
   }
 
@@ -451,6 +460,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Get initial state
   chrome.runtime.sendMessage({ action: 'GET_STATE' }, res => {
+    if (chrome.runtime.lastError) return;
     if (res?.state) {
       updateUIWithState(res.state);
       if (res.state.config?.postText) {

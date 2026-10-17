@@ -3,8 +3,12 @@
  * Orchestrates multi-group campaign queue, Cloudflare AI spinning, delays, and safety monitoring.
  */
 
-import SpintaxEngine from './utils/spintax.js';
-import Humanizer from './utils/humanizer.js';
+// Load universal utilities via importScripts (Manifest V3 standard)
+try {
+  importScripts('utils/spintax.js', 'utils/humanizer.js');
+} catch (e) {
+  console.error('[AutoGroupPilot] Error importing scripts in service worker:', e);
+}
 
 const DEFAULT_WORKER_URL = 'https://fb-smart-poster.0amaal89.workers.dev';
 
@@ -44,7 +48,6 @@ let state = {
 chrome.storage.local.get(['agp_state'], (result) => {
   if (result.agp_state) {
     state = { ...state, ...result.agp_state };
-    // If was running before browser restart, set to paused
     if (state.status === 'running') state.status = 'paused';
     checkDailyReset();
     saveState();
@@ -67,7 +70,7 @@ function addLog(type, message, details = {}) {
   const logEntry = {
     id: Date.now() + Math.random().toString(36).slice(2, 6),
     timestamp: new Date().toLocaleTimeString(),
-    type, // 'info' | 'success' | 'warn' | 'error'
+    type,
     message,
     ...details,
   };
@@ -131,7 +134,7 @@ async function runCampaignLoop() {
       broadcastState();
 
       await Humanizer.sleep(breakMs);
-      if (state.status !== 'cooling_down') break; // Campaign was stopped/paused during cool-down
+      if (state.status !== 'cooling_down') break;
       state.status = 'running';
       addLog('info', 'Cool-down completed. Resuming campaign...');
       broadcastState();
@@ -148,13 +151,13 @@ async function runCampaignLoop() {
     if (state.config.useAiSpin) {
       try {
         addLog('info', `Generating unique variation using Cloudflare Workers AI...`);
-        const spinRes = await fetch(`${state.config.aiWorkerUrl}/api/ai/spin`, {
+        const spinRes = await fetch(`${state.config.aiWorkerUrl || DEFAULT_WORKER_URL}/api/ai/spin`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text: state.config.postText,
-            tone: state.config.aiTone,
-            style: state.config.aiStyle,
+            tone: state.config.aiTone || 'engaging',
+            style: state.config.aiStyle || 'moderate',
           }),
         });
         const spinData = await spinRes.json();
@@ -183,7 +186,7 @@ async function runCampaignLoop() {
     let tab;
     try {
       tab = await createOrFocusGroupTab(group.url);
-      await Humanizer.sleep(4500); // Allow FB single-page app to mount
+      await Humanizer.sleep(4500);
     } catch (tabErr) {
       addLog('error', `Could not open group tab: ${tabErr.message}`);
       state.currentIndex++;
@@ -212,7 +215,7 @@ async function runCampaignLoop() {
         state.status = 'error';
         addLog('error', `CRITICAL: ${response.error}`);
         broadcastState();
-        break; // Stop immediately on security checkpoint
+        break;
       } else {
         state.stats.failCount++;
         addLog('warn', `Failed to post to "${group.name}": ${response?.error || 'Unknown issue'}`);
@@ -226,9 +229,11 @@ async function runCampaignLoop() {
     saveState();
     broadcastState();
 
-    // 4. Calculate delay for next group (if more groups remain)
+    // 4. Calculate delay for next group
     if (state.currentIndex < state.queue.length && state.status === 'running') {
-      const delayMs = Humanizer.getJitterDelay(state.config.minDelaySec, state.config.maxDelaySec);
+      const minD = parseInt(state.config.minDelaySec, 10) || 45;
+      const maxD = parseInt(state.config.maxDelaySec, 10) || 90;
+      const delayMs = Humanizer.getJitterDelay(minD, maxD);
       state.nextPostTime = Date.now() + delayMs;
       addLog('info', `Waiting ${Math.round(delayMs / 1000)}s before next group (anti-ban pacing)...`);
       broadcastState();
@@ -245,9 +250,6 @@ async function runCampaignLoop() {
   }
 }
 
-/**
- * Opens or updates the active tab to the specified Facebook group URL.
- */
 async function createOrFocusGroupTab(url) {
   const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
   if (tabs.length > 0) {
