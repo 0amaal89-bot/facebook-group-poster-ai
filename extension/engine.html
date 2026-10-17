@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AutoGroupPilot — Engine Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="engine.css">
+</head>
+<body>
+
+<!-- ═══ Ban banner (visible during cooldown / security backoff) ══ -->
+<div class="ban-banner" id="banBanner" role="alert">
+  <span class="ban-banner-icon">!</span>
+  <div>
+    <span class="ban-banner-title">Cooldown Active</span>
+    <span class="ban-banner-body" id="banBannerBody">Posting paused to protect this account from Facebook spam detection.</span>
+  </div>
+  <span class="ban-banner-countdown" id="banBannerCountdown">--:--</span>
+  <button type="button" class="ban-banner-clear" id="banBannerClear" title="Clear cooldown manually">Clear</button>
+</div>
+
+<!-- ═══ Persistent warning strip — keep-alive notification ════════════ -->
+<div class="warn-strip" role="note">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10"></circle>
+    <line x1="12" y1="8" x2="12" y2="12"></line>
+    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+  </svg>
+  <span><strong>Do not close this tab.</strong> Your Facebook connection lives here — closing will pause posting and sleep the engine.</span>
+</div>
+
+<!-- ═══ Top bar ═════════════════════════════════════════════════ -->
+<header>
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2C6.477 2 2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.879V14.89h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.989C18.343 21.129 22 16.99 22 12c0-5.523-4.477-10-10-10z"/>
+      </svg>
+    </div>
+    <span>autogrouppilot</span>
+    <span class="brand-tag">engine</span>
+  </div>
+  <div class="header-right">
+    <div class="conn-badge" id="aiBadge" title="Cloudflare Workers AI (Llama 3.2)">
+      <div class="conn-dot" style="background: #3b82f6;"></div>
+      <span id="aiStatusText">Cloudflare AI: Online</span>
+    </div>
+    <div class="conn-badge" id="connBadge">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connText">Connected</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ Scrollable page ═════════════════════════════════════════ -->
+<div class="page">
+
+  <!-- HERO: North Star status -->
+  <section class="hero">
+    <div class="hero-left">
+      <div class="hero-kicker">Engine status</div>
+      <div class="hero-status">
+        <div class="hero-status-dot" id="heroStatusDot"></div>
+        <h1 class="hero-headline" id="heroHeadline">Active</h1>
+      </div>
+      <p class="hero-sub">The posting engine is running safely. Automations continue in the background as long as this tab stays open and you're signed in to Facebook.</p>
+
+      <div class="hero-session">
+        <div class="hero-avatar" id="avatarEl">?</div>
+        <div class="hero-session-meta">
+          <div class="hero-session-name" id="userNameEl">Connecting to Facebook…</div>
+          <div class="hero-session-sub" id="userSubEl">Detecting session</div>
+        </div>
+        <button class="hero-refresh" id="refreshBtn" type="button" title="Rescan Facebook session and sync joined groups">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Sync Groups
+        </button>
+      </div>
+    </div>
+
+    <div class="hero-right">
+      <div class="hero-meta-block">
+        <div class="hero-meta-label">Uptime</div>
+        <div class="hero-meta-value" id="uptimeEl">00:00:00</div>
+        <div class="hero-meta-sub">since tab opened</div>
+      </div>
+      <div class="hero-meta-block">
+        <div class="hero-meta-label">Last success</div>
+        <div class="hero-meta-value" id="dashLastSuccess">—</div>
+        <div class="hero-meta-sub" id="dashLastSuccessSub">No posts yet</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- METRICS: Health cards -->
+  <section class="metrics-row">
+    <div class="metric-card" id="metricToday">
+      <div class="metric-icon" aria-hidden="true">
+        <svg viewBox="0 0 256 256" fill="currentColor"><path d="M215.79 118.17a8 8 0 0 0-5-5.66L153 90.9l14.71-73.5a8 8 0 0 0-13.36-7.51l-112 120a8 8 0 0 0 3 13l57.7 21.6L88.34 238a8 8 0 0 0 13.36 7.5l112-120a8 8 0 0 0 2.09-7.34Z" opacity=".25"/><path d="M213.85 125.46l-112 120a8 8 0 0 1-13.69-7l14.66-73.33-57.63-21.6a8 8 0 0 1-3-13l112-120a8 8 0 0 1 13.69 7L153.18 90.9l57.63 21.61a8 8 0 0 1 3 12.95Z"/></svg>
+      </div>
+      <div class="metric-label">Posts · Today</div>
+      <div class="metric-value dash-card-value" id="dashPostsToday">0 / 200</div>
+      <div class="metric-sub" id="dashPostsTodaySub">Safety limit 200/day</div>
+    </div>
+    <div class="metric-card" id="metricTier">
+      <div class="metric-icon" aria-hidden="true">
+        <svg viewBox="0 0 256 256" fill="currentColor"><path d="M232 128a104 104 0 1 1-104-104 104 104 0 0 1 104 104Z" opacity=".25"/><path d="M128 64a72 72 0 0 0-58.55 113.55a8 8 0 0 0 6.55 3.45h104a8 8 0 0 0 6.55-3.45A72 72 0 0 0 128 64Zm5.66 67.31a8 8 0 0 1-11.32-11.31l32-32a8 8 0 0 1 11.32 11.31ZM128 16a112 112 0 1 0 112 112A112.13 112.13 0 0 0 128 16Zm0 208a96 96 0 1 1 96-96 96.11 96.11 0 0 1-96 96Z"/></svg>
+      </div>
+      <div class="metric-label">Smart delay</div>
+      <div class="metric-value dash-card-value" id="dashDelayTier">1.0×</div>
+      <div class="metric-sub" id="dashDelayTierSub">Rest 10m / 8 posts</div>
+    </div>
+    <div class="metric-card" id="metricStrikes">
+      <div class="metric-icon" aria-hidden="true">
+        <svg viewBox="0 0 256 256" fill="currentColor"><path d="M208 40H48a16 16 0 0 0-16 16v58.78c0 89.61 75.82 119.34 91 124.39a15.53 15.53 0 0 0 10 0c15.2-5.05 91-34.78 91-124.39V56a16 16 0 0 0-16-16Z" opacity=".25"/><path d="M208 32H48a24 24 0 0 0-24 24v58.78c0 96.05 81.3 127.68 97.66 133.13a23.94 23.94 0 0 0 12.69.06C151.05 242.55 232 210.92 232 114.78V56a24 24 0 0 0-24-24Zm-32.69 73.66-56 56a8 8 0 0 1-11.32 0l-24-24a8 8 0 0 1 11.32-11.32L114 145l50.34-50.31a8 8 0 0 1 11.32 11.32Z"/></svg>
+      </div>
+      <div class="metric-label">Strikes</div>
+      <div class="metric-value dash-card-value" id="dashStrikes">0</div>
+      <div class="metric-sub" id="dashStrikesSub">Clean · No flags</div>
+    </div>
+    <div class="metric-card" id="metricSent">
+      <div class="metric-icon" aria-hidden="true">
+        <svg viewBox="0 0 256 256" fill="currentColor"><path d="m227.32 28.68-198.65 56.4a8 8 0 0 0-1.1 15l85.06 35.45 35.45 85.06a8 8 0 0 0 15-1.1l56.4-198.65a8 8 0 0 0-7.4-2.16Z" opacity=".25"/><path d="m236.24 19.76-1.07-1.07-1.18-.78-1.39-.66-1.34-.4-1.45-.16h-1.39l-1.49.21h-.05L29.7 73.3a16 16 0 0 0-2.42 30.05L114 138.78V230a16 16 0 0 0 16 16 16.18 16.18 0 0 0 14.31-9.11l60.94-117a8 8 0 1 0-14.18-7.4L130 230v-.07L130 138.78l86.17 41.94 41.94-86.17 27.94-86.16Z"/></svg>
+      </div>
+      <div class="metric-label">Posts · Session</div>
+      <div class="metric-value" id="postsSentEl">0</div>
+      <div class="metric-sub">published in this run</div>
+    </div>
+  </section>
+
+  <!-- SYSTEM: Pill badges for engine state + counter -->
+  <section class="system-row">
+    <div class="system-stats">
+      <span class="pill pill-running">
+        <svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true">
+          <path d="M232 128a104 104 0 1 1-104-104 104 104 0 0 1 104 104Z" opacity=".25"/>
+          <path d="M232 120h-26.34l-23.32-46.65a8 8 0 0 0-14.31 0L130 142.11l-21.51-43a8 8 0 0 0-14.31 0L74.34 120H24a8 8 0 0 0 0 16h55.06a8 8 0 0 0 7.16-4.42L101.34 102l21.51 43a8 8 0 0 0 14.31 0L168 81.89l16.82 33.69A8 8 0 0 0 192 136h40a8 8 0 0 0 0-16Z"/>
+        </svg>
+        Engine running
+      </span>
+      <span id="postingStatusEl">Idle</span>
+      <span class="pill" id="groupsCountBadge" style="background: var(--brand-light); color: var(--brand-2);">
+        0 Groups synced
+      </span>
+    </div>
+    <div class="system-counter">
+      Activity entries: <strong id="logCountEl">0</strong>
+    </div>
+  </section>
+
+  <!-- ACTIVITY LOG -->
+  <section class="log-section">
+    <div class="log-header">
+      <div class="log-title-wrap">
+        <span class="log-title">Activity</span>
+        <span class="log-count-badge" id="logBadge">0 entries</span>
+      </div>
+      <div class="log-actions">
+        <div class="reveal-wrap">
+          <span class="reveal-label">Reveal</span>
+          <label class="toggle">
+            <input type="checkbox" id="revealToggle"/>
+            <div class="toggle-track"></div>
+            <div class="toggle-thumb"></div>
+          </label>
+        </div>
+        <button class="icon-btn" id="runDiagnosticBtn" title="Run self-test on Facebook session and Cloudflare AI">🔍 Run Diagnostic</button>
+        <button class="icon-btn" id="downloadLogsBtn" title="Download the saved engine logs">Download logs</button>
+        <button class="icon-btn" id="clearBtn">Clear</button>
+      </div>
+    </div>
+    <div class="log-body" id="logBody">
+      <div class="log-empty" id="logEmpty">
+        <div class="log-empty-icon">
+          <svg viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M232 128h-40l-32 88-64-176-32 88H24" opacity=".25" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M232 120h-34.4l-30 82.45a8 8 0 0 1-7.52 5.27 8 8 0 0 1-7.52-5.45l-56-153.93-25.42 70a8 8 0 0 1-7.52 5.27H24a8 8 0 0 1 0-16h33.6l30-82.45a8 8 0 0 1 15 .18l56 153.93 25.46-70a8 8 0 0 1 7.52-5.27H232a8 8 0 0 1 0 16Z"/></svg>
+        </div>
+        <div class="log-empty-text">Waiting for activity</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- Toast host -->
+<div class="toast-host" id="toastHost" aria-live="polite"></div>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-left">
+    <div class="footer-dot"></div>
+    <strong>Engine active</strong>
+    <span>·</span>
+    <span>tab must remain open</span>
+  </div>
+  <div class="footer-right">autogrouppilot</div>
+</footer>
+
+<script src="utils/spintax.js"></script>
+<script src="utils/humanizer.js"></script>
+<script src="engine.js"></script>
+</body>
+</html>

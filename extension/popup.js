@@ -70,6 +70,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // Open Engine Command Center Tab
+  const btnOpenEngineTab = document.getElementById('btnOpenEngineTab');
+  if (btnOpenEngineTab) {
+    btnOpenEngineTab.addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('engine.html') });
+    });
+  }
+
   // 2. Preset Selection
   presetBtns.forEach(btn => {
     btn.addEventListener('click', () => {

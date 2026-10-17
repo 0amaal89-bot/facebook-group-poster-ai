@@ -260,6 +260,20 @@ async function createOrFocusGroupTab(url) {
   return await chrome.tabs.create({ url, active: true });
 }
 
+// Keep-alive port listener from Engine Command Center tab
+let enginePorts = new Set();
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name === 'AGP_ENGINE_KEEP_ALIVE') {
+    enginePorts.add(port);
+    port.onDisconnect.addListener(() => {
+      enginePorts.delete(port);
+    });
+    port.onMessage.addListener(() => {
+      // Ping response keeps background service worker active
+    });
+  }
+});
+
 // Runtime Message Router
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'GET_STATE') {
@@ -275,6 +289,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     state.status = 'running';
     saveState();
     broadcastState();
+
+    // Ensure Engine keep-alive tab is open
+    chrome.tabs.query({ url: chrome.runtime.getURL('engine.html') }, tabs => {
+      if (tabs.length === 0) {
+        chrome.tabs.create({ url: chrome.runtime.getURL('engine.html'), active: true });
+      }
+    });
+
     runCampaignLoop();
     sendResponse({ success: true });
     return false;
