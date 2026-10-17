@@ -1,0 +1,62 @@
+name: Build & Package Chrome Extension
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate Extension Manifest
+        run: |
+          node -e "
+            const manifest = require('./extension/manifest.json');
+            console.log('Validating manifest for:', manifest.name, 'v' + manifest.version);
+            if (manifest.manifest_version !== 3) throw new Error('Must be Manifest V3');
+            console.log('Manifest V3 validation passed!');
+          "
+
+      - name: Package Extension ZIP
+        run: |
+          mkdir -p dist
+          cd extension
+          zip -r ../dist/autogrouppilot-extension-v1.0.0.zip .
+          cd ..
+          echo "Extension packaged successfully at dist/autogrouppilot-extension-v1.0.0.zip"
+
+      - name: Upload Extension Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: autogrouppilot-chrome-extension
+          path: dist/autogrouppilot-extension-v1.0.0.zip
+          retention-days: 30
+
+  deploy-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy Cloudflare Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: 'cloudflare-worker'
+        continue-on-error: true

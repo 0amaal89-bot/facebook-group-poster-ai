@@ -1,0 +1,7 @@
+name = "fb-smart-poster"
+main = "src/index.ts"
+compatibility_date = "2024-10-01"
+account_id = "b6671885fa76c3c1175faf5f9683472f"
+
+[ai]
+binding = "AI"

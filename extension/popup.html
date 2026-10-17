@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoGroupPilot</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>AutoGroupPilot</h1>
+          <span class="brand-tag">AI & Anti-Ban</span>
+        </div>
+      </div>
+      <div class="header-status">
+        <span class="status-indicator" id="statusPill">IDLE</span>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button class="tab-btn active" data-tab="tab-composer">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        Composer
+      </button>
+      <button class="tab-btn" data-tab="tab-groups">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        Groups (<span id="selectedCountBadge">0</span>)
+      </button>
+      <button class="tab-btn" data-tab="tab-monitor">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+        Monitor
+      </button>
+      <button class="tab-btn" data-tab="tab-settings">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        AI & Safety
+      </button>
+    </nav>
+
+    <!-- TAB 1: COMPOSER -->
+    <main class="tab-content active" id="tab-composer">
+      <div class="field-group">
+        <div class="field-header">
+          <label for="postTextInput">Post Message Template</label>
+          <span class="helper-badge" id="spintaxBadge">0 variations</span>
+        </div>
+        <textarea id="postTextInput" rows="5" placeholder="Write your message here... Supports Spintax: {Hello|Hi|Hey} {everyone|friends}! Our new tool is live!"></textarea>
+      </div>
+
+      <!-- Cloudflare AI Spin Bar -->
+      <div class="ai-spin-box">
+        <div class="ai-spin-header">
+          <div class="ai-spin-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            <span>Cloudflare Workers AI (Llama 3.2)</span>
+          </div>
+          <button class="btn btn-secondary btn-xs" id="btnAiSpinPreview">
+            Spin Preview
+          </button>
+        </div>
+        <div class="ai-spin-preview" id="aiSpinPreview" style="display: none;">
+          <p class="preview-text" id="aiSpinPreviewText"></p>
+          <button class="btn btn-primary btn-xs" id="btnApplyAiSpin">Use This Variation</button>
+        </div>
+      </div>
+
+      <!-- Auto First Comment Option -->
+      <div class="card-option">
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoFirstCommentToggle">
+          <span class="slider"></span>
+        </label>
+        <div class="option-details">
+          <strong>Auto First-Comment (Link Safe)</strong>
+          <p>Bypasses "No links in posts" group bans by posting your link as comment #1.</p>
+        </div>
+      </div>
+
+      <div class="field-group" id="firstCommentGroup" style="display: none;">
+        <label for="firstCommentInput">First Comment Content</label>
+        <input type="text" id="firstCommentInput" placeholder="👉 Check full details and link here: https://yoursite.com">
+      </div>
+
+      <!-- Safety Preset Selector -->
+      <div class="field-group">
+        <label>Anti-Ban Safety Preset</label>
+        <div class="preset-selector">
+          <button class="preset-btn" data-preset="maximum">
+            <span class="preset-title">Maximum</span>
+            <span class="preset-sub">90s - 210s</span>
+          </button>
+          <button class="preset-btn active" data-preset="balanced">
+            <span class="preset-title">Balanced</span>
+            <span class="preset-sub">45s - 90s</span>
+          </button>
+          <button class="preset-btn" data-preset="fast">
+            <span class="preset-title">Turbo</span>
+            <span class="preset-sub">25s - 50s</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Action Footer -->
+      <div class="action-footer">
+        <button class="btn btn-primary btn-lg" id="btnStartCampaign">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          Start Campaign
+        </button>
+      </div>
+    </main>
+
+    <!-- TAB 2: GROUPS & BUNDLES -->
+    <main class="tab-content" id="tab-groups">
+      <div class="groups-toolbar">
+        <button class="btn btn-secondary btn-sm" id="btnSyncFbGroups">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+          Sync from Facebook
+        </button>
+        <div class="bundle-actions">
+          <select id="bundleSelect">
+            <option value="all">All Groups</option>
+          </select>
+          <button class="btn btn-secondary btn-sm" id="btnSaveBundle">Save Bundle</button>
+        </div>
+      </div>
+
+      <div class="search-bar">
+        <input type="text" id="groupSearchInput" placeholder="Filter groups by name...">
+        <div class="selection-actions">
+          <a href="#" id="linkSelectAll">Select All</a>
+          <span>·</span>
+          <a href="#" id="linkDeselectAll">Clear</a>
+        </div>
+      </div>
+
+      <div class="groups-list" id="groupsList">
+        <div class="empty-state" id="groupsEmptyState">
+          <p>No groups imported yet.</p>
+          <small>Click "Sync from Facebook" to auto-detect your joined groups!</small>
+        </div>
+      </div>
+    </main>
+
+    <!-- TAB 3: MONITOR & LIVE QUEUE -->
+    <main class="tab-content" id="tab-monitor">
+      <div class="monitor-card">
+        <div class="monitor-header">
+          <div>
+            <span class="sub-label">Campaign Progress</span>
+            <h2 id="monitorProgressText">0 / 0 Groups</h2>
+          </div>
+          <div class="countdown-badge" id="countdownBadge">
+            <span id="countdownLabel">Next post in:</span>
+            <strong id="countdownVal">--</strong>
+          </div>
+        </div>
+
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progressBar" style="width: 0%;"></div>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-item">
+            <span class="stat-num text-success" id="statSuccess">0</span>
+            <span class="stat-name">Published</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num text-danger" id="statFailed">0</span>
+            <span class="stat-name">Failed</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num" id="statToday">0 / 30</span>
+            <span class="stat-name">Today's Quota</span>
+          </div>
+        </div>
+
+        <div class="queue-controls">
+          <button class="btn btn-secondary" id="btnPauseResume">Pause</button>
+          <button class="btn btn-danger" id="btnStopCampaign">Stop</button>
+        </div>
+      </div>
+
+      <div class="logs-header">
+        <span class="sub-label">Live Activity Audit Log</span>
+        <button class="btn btn-link btn-xs" id="btnClearLogs">Clear</button>
+      </div>
+      <div class="logs-container" id="logsContainer">
+        <!-- Live log items injected dynamically -->
+      </div>
+    </main>
+
+    <!-- TAB 4: CLOUDFLARE AI & SAFETY -->
+    <main class="tab-content" id="tab-settings">
+      <div class="card-section">
+        <h3>Cloudflare Workers AI</h3>
+        <p class="section-desc">Zero-cost edge AI rewriting powered by Llama 3.2 on Cloudflare Workers.</p>
+        
+        <div class="field-group">
+          <label for="workerUrlInput">Worker API Endpoint</label>
+          <div class="input-with-action">
+            <input type="text" id="workerUrlInput" value="https://fb-smart-poster.0amaal89.workers.dev">
+            <button class="btn btn-secondary btn-sm" id="btnTestWorker">Test</button>
+          </div>
+          <span class="help-text" id="workerTestStatus"></span>
+        </div>
+
+        <div class="field-group">
+          <label for="aiToneSelect">AI Rewrite Tone</label>
+          <select id="aiToneSelect">
+            <option value="engaging">Engaging & Conversational (Default)</option>
+            <option value="enthusiastic">Enthusiastic & High Energy</option>
+            <option value="professional">Professional & Authoritative</option>
+            <option value="casual">Friendly & Casual</option>
+          </select>
+        </div>
+
+        <div class="field-group">
+          <label for="aiStyleSelect">Variation Intensity</label>
+          <select id="aiStyleSelect">
+            <option value="moderate">Moderate Paraphrase (Recommended)</option>
+            <option value="subtle">Subtle Phrasing Shift</option>
+            <option value="creative">High Creativity Rewrite</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card-section">
+        <h3>Anti-Ban Safeguards</h3>
+        
+        <div class="field-row">
+          <div class="field-group flex-1">
+            <label for="dailyLimitInput">Max Posts Per Day</label>
+            <input type="number" id="dailyLimitInput" value="30" min="5" max="100">
+          </div>
+          <div class="field-group flex-1">
+            <label for="coolDownEveryInput">Cool-down Every</label>
+            <input type="number" id="coolDownEveryInput" value="8" min="3" max="25">
+          </div>
+          <div class="field-group flex-1">
+            <label for="coolDownMinsInput">Break (Mins)</label>
+            <input type="number" id="coolDownMinsInput" value="10" min="2" max="60">
+          </div>
+        </div>
+
+        <div class="field-row">
+          <div class="field-group flex-1">
+            <label for="minDelayInput">Min Delay (sec)</label>
+            <input type="number" id="minDelayInput" value="45" min="15" max="300">
+          </div>
+          <div class="field-group flex-1">
+            <label for="maxDelayInput">Max Delay (sec)</label>
+            <input type="number" id="maxDelayInput" value="90" min="25" max="600">
+          </div>
+        </div>
+      </div>
+
+      <div class="card-section">
+        <button class="btn btn-secondary btn-block" id="btnExportSettings">
+          Export Groups & Bundles
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

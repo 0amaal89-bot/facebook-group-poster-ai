@@ -1,0 +1,15 @@
+{
+  "name": "fb-smart-poster-worker",
+  "version": "1.0.0",
+  "description": "Cloudflare Workers AI backend for Smart Facebook Group Poster",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241018.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^3.80.0"
+  }
+}
