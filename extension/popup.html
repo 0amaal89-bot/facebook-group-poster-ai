@@ -124,10 +124,15 @@
     <!-- TAB 2: GROUPS & BUNDLES -->
     <main class="tab-content" id="tab-groups">
       <div class="groups-toolbar">
-        <button class="btn btn-secondary btn-sm" id="btnSyncFbGroups">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
-          Sync from Facebook
-        </button>
+        <div style="display: flex; gap: 6px;">
+          <button class="btn btn-secondary btn-sm" id="btnSyncFbGroups" title="Auto-detect joined groups from Facebook">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+            Sync from FB
+          </button>
+          <button class="btn btn-secondary btn-sm" id="btnPasteGroups" title="Manually paste Facebook group URLs or IDs">
+            + Paste Groups
+          </button>
+        </div>
         <div class="bundle-actions">
           <select id="bundleSelect">
             <option value="all">All Groups</option>

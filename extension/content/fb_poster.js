@@ -616,35 +616,83 @@
   }
 
   async function scanUserGroups() {
+    console.log('[AutoGroupPilot] Scanning Facebook for joined groups...');
     const groups = new Map();
+    const ignoreSlugs = new Set([
+      'feed', 'discover', 'joins', 'create', 'notifications', 'categories',
+      'chats', 'saved', 'manage', 'membership_questions', 'your_posts', 'search'
+    ]);
 
-    for (let i = 0; i < 6; i++) {
-      window.scrollBy({ top: 900, behavior: 'smooth' });
-      await (typeof Humanizer !== 'undefined' ? Humanizer.sleep(1200) : new Promise(r => setTimeout(r, 1200)));
+    // Find scrollable sidebar containers if any
+    const scrollContainers = [
+      window,
+      document.querySelector('div[role="navigation"] div[style*="overflow"]'),
+      document.querySelector('div[role="navigation"]'),
+      document.querySelector('div[data-pagelet*="LeftRail"]'),
+    ].filter(Boolean);
+
+    for (let i = 0; i < 7; i++) {
+      // Scroll page & sidebar
+      scrollContainers.forEach(container => {
+        try {
+          if (container === window) {
+            window.scrollBy({ top: 900, behavior: 'smooth' });
+          } else if (container.scrollBy) {
+            container.scrollBy({ top: 700, behavior: 'smooth' });
+          }
+        } catch (e) {}
+      });
+
+      await new Promise(r => setTimeout(r, 1000));
 
       const links = document.querySelectorAll('a[href*="/groups/"]');
       links.forEach(a => {
-        const href = a.href;
-        const match = href.match(/facebook\.com\/groups\/([a-zA-Z0-9._-]+)/);
+        const href = a.href || a.getAttribute('href') || '';
+        const match = href.match(/(?:https?:\/\/[^/]+)?\/groups\/([a-zA-Z0-9._-]+)/i);
         if (!match) return;
 
-        const groupId = match[1];
-        if (['feed', 'discover', 'joins', 'create', 'notifications', 'categories'].includes(groupId)) {
-          return;
+        const groupId = match[1].toLowerCase();
+        if (ignoreSlugs.has(groupId)) return;
+
+        // Extract clean group title
+        let name = '';
+        const titleEl = a.querySelector('span[dir="auto"], strong, h3, h4, span.x193iq5w');
+        if (titleEl && titleEl.innerText.trim()) {
+          name = titleEl.innerText.trim();
+        } else {
+          const raw = (a.innerText || a.getAttribute('aria-label') || '').trim();
+          name = raw.split('\n')[0].trim();
         }
 
-        const name = (a.innerText || a.getAttribute('aria-label') || '').trim();
-        if (name && name.length > 2 && !name.includes('\n') && !groups.has(groupId)) {
-          groups.set(groupId, {
-            id: groupId,
+        // Clean up common prefixes
+        name = name.replace(/^(Group|مجموعة|Groupe):\s*/i, '').trim();
+
+        if (name && name.length >= 2 && !groups.has(match[1])) {
+          const lower = name.toLowerCase();
+          if (
+            lower === 'groups' ||
+            lower === 'المجموعات' ||
+            lower.includes('see all') ||
+            lower.includes('عرض الكل') ||
+            lower.includes('discover') ||
+            lower.includes('your feed') ||
+            lower.includes('create new group') ||
+            lower.includes('إنشاء مجموعة')
+          ) {
+            return;
+          }
+
+          groups.set(match[1], {
+            id: match[1],
             name: name,
-            url: `https://www.facebook.com/groups/${groupId}/`,
+            url: `https://www.facebook.com/groups/${match[1]}/`,
           });
         }
       });
     }
 
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) {}
+    console.log(`[AutoGroupPilot] Scan complete. Found ${groups.size} groups.`);
     return Array.from(groups.values());
   }
 

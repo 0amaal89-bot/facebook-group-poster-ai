@@ -199,46 +199,121 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // 8. Sync Groups from Facebook
+  const btnPasteGroups = document.getElementById('btnPasteGroups');
+
   btnSyncFbGroups.addEventListener('click', async () => {
-    btnSyncFbGroups.textContent = 'Scanning Facebook...';
+    btnSyncFbGroups.textContent = 'Opening FB...';
     btnSyncFbGroups.disabled = true;
 
     try {
       const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
-      let fbTab = tabs[0];
+      let fbTab = tabs.find(t => t.url && t.url.includes('/groups/')) || tabs[0];
+
       if (!fbTab) {
-        fbTab = await chrome.tabs.create({ url: 'https://www.facebook.com/groups/joins/' });
-        await new Promise(r => setTimeout(r, 4500));
+        fbTab = await chrome.tabs.create({ url: 'https://www.facebook.com/groups/joins/', active: true });
+        btnSyncFbGroups.textContent = 'Loading page...';
+        await new Promise(r => setTimeout(r, 6000));
+      } else {
+        await chrome.tabs.update(fbTab.id, { active: true });
+        if (!fbTab.url.includes('/groups/')) {
+          btnSyncFbGroups.textContent = 'Opening groups...';
+          await chrome.tabs.update(fbTab.id, { url: 'https://www.facebook.com/groups/joins/' });
+          await new Promise(r => setTimeout(r, 5000));
+        }
       }
 
+      btnSyncFbGroups.textContent = 'Scanning...';
+
+      // Ensure content script is injected
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: fbTab.id },
+          files: ['utils/spintax.js', 'utils/humanizer.js', 'content/fb_poster.js']
+        });
+      } catch (err) {}
+
+      await new Promise(r => setTimeout(r, 1000));
+
       chrome.tabs.sendMessage(fbTab.id, { action: 'SCAN_GROUPS' }, response => {
-        btnSyncFbGroups.textContent = 'Sync from Facebook';
+        btnSyncFbGroups.textContent = 'Sync from FB';
         btnSyncFbGroups.disabled = false;
 
         if (chrome.runtime.lastError) {
-          alert('Could not connect to Facebook tab. Please refresh your Facebook page and make sure you are logged in.');
+          alert('Could not communicate with the Facebook tab. Please go to Facebook, make sure you are logged in, and refresh the tab.');
           return;
         }
 
         if (response && response.success && response.groups && response.groups.length > 0) {
-          allGroups = response.groups;
+          // Merge with any existing groups
+          const map = new Map(allGroups.map(g => [g.id, g]));
+          response.groups.forEach(g => map.set(g.id, g));
+          allGroups = Array.from(map.values());
+
           selectedGroupIds = new Set(allGroups.map(g => g.id));
           chrome.storage.local.set({
             agp_groups: allGroups,
             agp_selected_ids: Array.from(selectedGroupIds),
           });
           renderGroupsList();
-          alert(`Successfully synced ${allGroups.length} Facebook groups!`);
+          alert(`Success! Imported ${response.groups.length} Facebook groups.`);
         } else {
-          alert('Could not auto-detect groups. Please open https://www.facebook.com/groups/joins/ in your browser and ensure you are logged in.');
+          alert('No joined groups found on this page. Try navigating to https://www.facebook.com/groups/joins/ or use the "+ Paste Groups" button.');
         }
       });
     } catch (e) {
-      btnSyncFbGroups.textContent = 'Sync from Facebook';
+      btnSyncFbGroups.textContent = 'Sync from FB';
       btnSyncFbGroups.disabled = false;
       alert(`Error scanning groups: ${e.message}`);
     }
   });
+
+  // 8.1 Manually Paste Groups (URL or Name + URL)
+  if (btnPasteGroups) {
+    btnPasteGroups.addEventListener('click', () => {
+      const input = prompt(
+        'Paste Facebook group URLs or IDs (one per line):\nExample:\nhttps://www.facebook.com/groups/mygroup/\nhttps://www.facebook.com/groups/123456789/'
+      );
+      if (!input || !input.trim()) return;
+
+      const lines = input.split('\n').map(l => l.trim()).filter(Boolean);
+      let count = 0;
+      const map = new Map(allGroups.map(g => [g.id, g]));
+
+      lines.forEach(line => {
+        // Match group URL or raw ID
+        const match = line.match(/(?:facebook\.com\/groups\/)?([a-zA-Z0-9._-]+)/i);
+        if (match) {
+          const groupId = match[1];
+          if (!['feed', 'discover', 'joins', 'create', 'notifications'].includes(groupId.toLowerCase())) {
+            let name = groupId;
+            // Check if user provided "Name, URL" format
+            if (line.includes(',')) {
+              name = line.split(',')[0].trim();
+            }
+            map.set(groupId, {
+              id: groupId,
+              name: name,
+              url: `https://www.facebook.com/groups/${groupId}/`,
+            });
+            count++;
+          }
+        }
+      });
+
+      if (count > 0) {
+        allGroups = Array.from(map.values());
+        selectedGroupIds = new Set(allGroups.map(g => g.id));
+        chrome.storage.local.set({
+          agp_groups: allGroups,
+          agp_selected_ids: Array.from(selectedGroupIds),
+        });
+        renderGroupsList();
+        alert(`Successfully imported ${count} group(s)!`);
+      } else {
+        alert('No valid Facebook group URLs found in the text.');
+      }
+    });
+  }
 
   function renderGroupsList(filterQuery = '') {
     groupsList.innerHTML = '';
