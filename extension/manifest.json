@@ -42,6 +42,9 @@
         "utils/humanizer.js",
         "content/fb_poster.js"
       ],
+      "css": [
+        "content/fb_injected.css"
+      ],
       "run_at": "document_idle"
     }
   ]
