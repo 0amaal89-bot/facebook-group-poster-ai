@@ -244,8 +244,15 @@
           <div class="agp-ai-bar">
             <div class="agp-ai-bar-title">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-              <span>Cloudflare Workers AI (Llama 3.2)</span>
+              <span>Cloudflare AI (Llama 3.2)</span>
             </div>
+            <select id="agpModalLanguage" style="background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px; font-size: 11px; outline: none; cursor: pointer;">
+              <option value="darija" selected>🇲🇦 Moroccan Darija (الدارجة المغربية)</option>
+              <option value="arabic">🇸🇦 Standard Arabic (العربية الفصحى)</option>
+              <option value="french">🇫🇷 French (Français)</option>
+              <option value="english">🇬🇧 English</option>
+              <option value="auto">🌐 Auto-detect Language</option>
+            </select>
             <button class="agp-btn-ai-spin" id="agpModalBtnAiSpin">✨ Spin Caption</button>
           </div>
 
@@ -351,8 +358,9 @@
       btnAiSpin.textContent = 'Spinning...';
       btnAiSpin.disabled = true;
 
+      const selectedLang = document.getElementById('agpModalLanguage')?.value || 'darija';
       chrome.runtime.sendMessage(
-        { action: 'SPIN_POST_PREVIEW', text, tone: 'engaging', style: 'moderate' },
+        { action: 'SPIN_POST_PREVIEW', text, tone: 'engaging', style: 'moderate', language: selectedLang },
         res => {
           btnAiSpin.textContent = '✨ Spin Caption';
           btnAiSpin.disabled = false;
@@ -530,11 +538,15 @@
       fast: { minDelaySec: 25, maxDelaySec: 50, breakEvery: 12, breakDurationMinutes: 5 },
     }[activeModalPreset] || { minDelaySec: 45, maxDelaySec: 90, breakEvery: 8, breakDurationMinutes: 10 };
 
+    const selectedLang = document.getElementById('agpModalLanguage')?.value || 'darija';
+    const isOnlyUrl = !rawCaption && /^https?:\/\/[^\s]+$/i.test(finalUrl.trim());
+
     const config = {
       postText,
-      useAiSpin: true,
+      useAiSpin: !isOnlyUrl,
       aiTone: 'engaging',
       aiStyle: 'moderate',
+      aiLanguage: selectedLang,
       safetyMode: activeModalPreset,
       ...presetSettings,
       dailyLimit: 35,
@@ -708,7 +720,7 @@
       await Humanizer.simulateFeedPresence(3);
     }
 
-    const composerTrigger = await findComposerTrigger(12000);
+    const composerTrigger = await findComposerTrigger(15000);
     if (!composerTrigger) {
       return {
         success: false,
@@ -721,41 +733,59 @@
     } else {
       composerTrigger.click();
     }
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 2500));
 
-    const editor = await findRichEditor(8000);
+    const editor = await findRichEditor(10000);
     if (!editor) {
       return { success: false, error: 'Could not activate the post text editor.' };
     }
 
-    if (safetyConfig?.humanTyping && typeof Humanizer !== 'undefined') {
-      await Humanizer.simulateHumanTyping(editor, postText, 35);
-    } else {
-      editor.focus();
+    // Insert text and ensure Facebook parses URLs/spintax
+    editor.focus();
+    try {
       document.execCommand('selectAll', false, null);
       document.execCommand('insertText', false, postText);
-      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      // Append a trailing space to trigger Facebook's link scraper for preview generation
+      document.execCommand('insertText', false, ' ');
+    } catch (e) {
+      console.warn('[AutoGroupPilot] execCommand fallback:', e);
+      editor.innerText = postText + ' ';
     }
 
-    await new Promise(r => setTimeout(r, 3000));
+    // Dispatch full input event suite so Facebook's Lexical engine commits the content
+    editor.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertText',
+      data: ' ',
+    }));
+    editor.dispatchEvent(new Event('change', { bubbles: true }));
 
-    const postButton = await findSubmitPostButton(6000);
-    if (!postButton) {
-      return { success: false, error: 'Could not find the submit Post button.' };
+    console.log('[AutoGroupPilot] Text entered into composer. Waiting for link preview & Post button...');
+
+    // Wait up to 25 seconds for Facebook's link scraper / preview to resolve and enable the Post button
+    const readyResult = await waitForPostButtonReady(25000);
+    if (!readyResult.button) {
+      return {
+        success: false,
+        error: 'Could not locate the submit Post button in the group composer dialog.',
+      };
     }
 
-    if (postButton.getAttribute('aria-disabled') === 'true') {
-      return { success: false, error: 'Post button is disabled. Group may require admin approval or missing fields.' };
+    if (readyResult.status === 'timeout_disabled') {
+      return {
+        success: false,
+        error: 'Post button remained disabled. The group may require answering membership questions or have posting restrictions.',
+      };
     }
 
-    if (typeof Humanizer !== 'undefined') {
-      await Humanizer.simulateHumanClick(postButton);
-    } else {
-      postButton.click();
+    // Click the Post button with multi-strategy triggers and verify dialog closes
+    const clickResult = await clickPostButtonWithVerification(readyResult.button);
+    if (!clickResult.success) {
+      return clickResult;
     }
-    console.log('[AutoGroupPilot] Post button clicked. Awaiting confirmation...');
 
-    await new Promise(r => setTimeout(r, 5000));
+    console.log('[AutoGroupPilot] Post successfully published to group!');
 
     const postBlock = checkForSecurityWarnings();
     if (postBlock) {
@@ -779,35 +809,41 @@
     };
   }
 
-  async function findComposerTrigger(timeoutMs = 10000) {
+  async function findComposerTrigger(timeoutMs = 15000) {
     const startTime = Date.now();
     const selectors = [
-      'div[role="button"][tabindex="0"] span',
+      'div[data-pagelet="GroupInlineComposer"] div[role="button"]',
+      'div[data-pagelet*="Composer"] div[role="button"]',
       'div[role="region"] div[role="button"]',
+      'div[role="button"][tabindex="0"] span',
       'div[aria-label*="Create a public post"]',
       'div[aria-label*="Write something"]',
       'div[aria-label*="Create a post"]',
       'div[aria-label*="انشئ منشوراً"]',
       'div[aria-label*="اكتب شيئاً"]',
       'div[aria-label*="Créer une publication"]',
+      'div[aria-label*="Exprimez-vous"]',
       'div[aria-label*="Crear publicación"]'
     ];
 
+    const matchKeywords = [
+      'write something', 'create a public post', "what's on your mind", 'create a post', 'write a post',
+      'اكتب شيئاً', 'إنشاء منشور', 'بما تفكر', 'منشور عام', 'أضف منشوراً',
+      'écrivez quelque chose', 'créer une publication', 'exprimez-vous', 'que voulez-vous dire',
+      'crear publicación', 'escribe algo'
+    ];
+
     while (Date.now() - startTime < timeoutMs) {
+      // 1. Direct pagelet check
+      const inlineComposer = document.querySelector('div[data-pagelet="GroupInlineComposer"] div[role="button"]');
+      if (inlineComposer) return inlineComposer;
+
+      // 2. Selectors scan
       for (const sel of selectors) {
         const elements = document.querySelectorAll(sel);
         for (const el of elements) {
-          const text = (el.innerText || el.textContent || '').trim().toLowerCase();
-          if (
-            text.includes('write something') ||
-            text.includes('create a public post') ||
-            text.includes('what\'s on your mind') ||
-            text.includes('create a post') ||
-            text.includes('write a post') ||
-            text.includes('اكتب شيئاً') ||
-            text.includes('إنشاء منشور') ||
-            text.includes('بما تفكر')
-          ) {
+          const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().toLowerCase();
+          if (matchKeywords.some(k => text.includes(k))) {
             return el.closest('div[role="button"]') || el;
           }
         }
@@ -817,12 +853,13 @@
     return null;
   }
 
-  async function findRichEditor(timeoutMs = 8000) {
+  async function findRichEditor(timeoutMs = 10000) {
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutMs) {
       const dialog = document.querySelector('div[role="dialog"]');
       if (dialog) {
-        const textbox = dialog.querySelector('div[role="textbox"][contenteditable="true"]');
+        const textbox = dialog.querySelector('div[role="textbox"][contenteditable="true"]') ||
+                        dialog.querySelector('div[contenteditable="true"]');
         if (textbox) return textbox;
       }
       await new Promise(r => setTimeout(r, 400));
@@ -830,24 +867,213 @@
     return null;
   }
 
-  async function findSubmitPostButton(timeoutMs = 6000) {
-    const startTime = Date.now();
-    const postLabels = ['post', 'publish', 'share', 'نشر', 'publier', 'publicar'];
+  function isSubmitPostButton(el) {
+    if (!el) return false;
+    const role = el.getAttribute('role');
+    const tagName = el.tagName.toLowerCase();
+    if (role !== 'button' && tagName !== 'button') return false;
 
-    while (Date.now() - startTime < timeoutMs) {
-      const dialog = document.querySelector('div[role="dialog"]');
-      if (dialog) {
-        const buttons = dialog.querySelectorAll('div[role="button"], button');
-        for (const btn of buttons) {
-          const label = (btn.getAttribute('aria-label') || btn.innerText || '').trim().toLowerCase();
-          if (postLabels.some(l => label === l || label.includes(l))) {
-            return btn;
+    const ariaLabel = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+    const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+
+    // Explicit disqualifiers (toolbars, dialog close, feelings, photos, settings)
+    const blacklist = [
+      'close', 'fermer', 'إغلاق', 'cerrar',
+      'add to your post', 'إضافة إلى منشورك', 'ajouter à votre publication', 'agregar a tu publicación',
+      'photo', 'video', 'صورة', 'فيديو',
+      'tag', 'اشخاص', 'identifier', 'etiquetar',
+      'feeling', 'activity', 'شعور', 'activité', 'sentimiento',
+      'check in', 'موقع',
+      'more', 'المزيد', 'plus',
+      'settings', 'إعدادات', 'paramètres',
+      'schedule', 'جدولة', 'programmer'
+    ];
+
+    if (blacklist.some(b => ariaLabel.includes(b) || text.includes(b))) {
+      return false;
+    }
+
+    // Positive matches for submit action in Darija/Arabic, French, English, Spanish
+    const exactLabels = ['post', 'نشر', 'publier', 'publicar', 'submit'];
+    if (exactLabels.includes(ariaLabel) || exactLabels.includes(text)) {
+      return true;
+    }
+
+    // Phrased matches like "Post to group" / "نشر في المجموعة"
+    if (
+      (ariaLabel.startsWith('post') || text.startsWith('post') ||
+       ariaLabel.startsWith('نشر') || text.startsWith('نشر') ||
+       ariaLabel.startsWith('publier') || text.startsWith('publier')) &&
+      !ariaLabel.includes('add') && !text.includes('add')
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function findSubmitPostButton() {
+    const dialog = document.querySelector('div[role="dialog"]');
+    if (!dialog) return null;
+
+    // 1. Direct query by exact aria-labels
+    const exactLabels = ['Post', 'نشر', 'Publier', 'Publicar'];
+    for (const label of exactLabels) {
+      const direct = dialog.querySelector(`div[aria-label="${label}"][role="button"], button[aria-label="${label}"]`);
+      if (direct && isSubmitPostButton(direct)) return direct;
+    }
+
+    // 2. Iterate all buttons inside dialog from bottom up
+    const buttons = Array.from(dialog.querySelectorAll('div[role="button"], button'));
+    const matched = buttons.filter(isSubmitPostButton);
+    if (matched.length > 0) {
+      // The submit button is typically the last primary button in the dialog
+      return matched[matched.length - 1];
+    }
+
+    return null;
+  }
+
+  async function waitForPostButtonReady(maxWaitMs = 25000) {
+    const startTime = Date.now();
+    let lastFoundBtn = null;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      const btn = findSubmitPostButton();
+      if (btn) {
+        lastFoundBtn = btn;
+        const ariaDisabled = btn.getAttribute('aria-disabled');
+        const isDisabled = btn.disabled === true || ariaDisabled === 'true';
+
+        // Check if Facebook is still loading the link preview
+        const dialog = document.querySelector('div[role="dialog"]');
+        const isFetchingPreview = dialog && (
+          dialog.querySelector('div[role="progressbar"]') !== null ||
+          dialog.innerText.includes('Fetching preview') ||
+          dialog.innerText.includes('جلب المعاينة') ||
+          dialog.innerText.includes("Création de l'aperçu")
+        );
+
+        if (!isDisabled && !isFetchingPreview) {
+          console.log('[AutoGroupPilot] Post button is ready and enabled!');
+          return { button: btn, status: 'ready' };
+        }
+
+        // If preview is stuck loading after 10s, attempt to dismiss stuck preview loader via its 'X' button
+        if (Date.now() - startTime > 10000 && isFetchingPreview) {
+          const removePreviewBtn = dialog.querySelector('div[aria-label="Remove preview"], div[aria-label="إزالة المعاينة"], div[aria-label="Supprimer l\'aperçu"]');
+          if (removePreviewBtn) {
+            console.log('[AutoGroupPilot] Dismissing stuck preview loader to unblock Post button...');
+            removePreviewBtn.click();
+            await new Promise(r => setTimeout(r, 1200));
           }
         }
       }
+
       await new Promise(r => setTimeout(r, 400));
     }
-    return null;
+
+    const isStillDisabled = lastFoundBtn && (lastFoundBtn.disabled || lastFoundBtn.getAttribute('aria-disabled') === 'true');
+    return {
+      button: lastFoundBtn,
+      status: isStillDisabled ? 'timeout_disabled' : (lastFoundBtn ? 'ready' : 'not_found'),
+    };
+  }
+
+  async function clickPostButtonWithVerification(btn) {
+    if (!btn) return { success: false, error: 'No submit button provided.' };
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      console.log(`[AutoGroupPilot] Attempting to click Post button (attempt ${attempt}/3)...`);
+
+      // 1. Scroll into view & focus
+      try {
+        btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (typeof btn.focus === 'function') btn.focus();
+      } catch (e) {}
+
+      await new Promise(r => setTimeout(r, 200));
+
+      // 2. React Fiber synthetic onClick invocation
+      try {
+        const propKey = Object.keys(btn).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
+        if (propKey && btn[propKey] && typeof btn[propKey].onClick === 'function') {
+          btn[propKey].onClick({
+            preventDefault: () => {},
+            stopPropagation: () => {},
+            target: btn,
+            currentTarget: btn,
+          });
+        }
+      } catch (err) {
+        console.warn('[AutoGroupPilot] Fiber click attempt:', err);
+      }
+
+      // 3. Pointer & Mouse event sequence
+      const rect = btn.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const commonEvt = {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+        clientX: x,
+        clientY: y,
+      };
+
+      btn.dispatchEvent(new PointerEvent('pointerdown', commonEvt));
+      btn.dispatchEvent(new MouseEvent('mousedown', commonEvt));
+      btn.dispatchEvent(new PointerEvent('pointerup', commonEvt));
+      btn.dispatchEvent(new MouseEvent('mouseup', commonEvt));
+      btn.dispatchEvent(new MouseEvent('click', commonEvt));
+      if (typeof btn.click === 'function') {
+        btn.click();
+      }
+
+      // 4. Click any inner span/div
+      const inner = btn.querySelector('span, div');
+      if (inner && typeof inner.click === 'function') {
+        inner.click();
+      }
+
+      // 5. Verification loop: check if dialog closed or success/pending notification appeared
+      for (let s = 0; s < 8; s++) {
+        await new Promise(r => setTimeout(r, 500));
+        const currentDialog = document.querySelector('div[role="dialog"]');
+        if (!currentDialog || currentDialog.getAttribute('aria-hidden') === 'true') {
+          console.log('[AutoGroupPilot] Post submitted successfully! Composer dialog closed.');
+          return { success: true };
+        }
+
+        const bodyText = document.body.innerText;
+        if (
+          bodyText.includes('Your post has been submitted') ||
+          bodyText.includes('submitted and is pending approval') ||
+          bodyText.includes('تم إرسال منشورك') ||
+          bodyText.includes('قيد المراجعة') ||
+          bodyText.includes('Publication envoyée')
+        ) {
+          console.log('[AutoGroupPilot] Post submitted for admin approval.');
+          return { success: true, pendingApproval: true };
+        }
+      }
+
+      // Refresh button reference if still in dialog
+      const freshBtn = findSubmitPostButton();
+      if (freshBtn) {
+        btn = freshBtn;
+      }
+    }
+
+    const finalDialog = document.querySelector('div[role="dialog"]');
+    if (!finalDialog) {
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error: 'Clicked Post button but the dialog stayed open. The group may require answering membership questions or have specific posting rules.',
+    };
   }
 
   async function executeFirstComment(commentText) {

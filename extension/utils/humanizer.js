@@ -138,11 +138,16 @@ class Humanizer {
   }
 
   /**
-   * Dispatches realistic human mouse click with mousedown, mouseup, click.
+   * Dispatches realistic human mouse click with pointer, mouse, and native click.
    * @param {HTMLElement} element 
    */
   static async simulateHumanClick(element) {
     if (!element || typeof window === 'undefined') return;
+    try {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (typeof element.focus === 'function') element.focus();
+    } catch (e) {}
+
     const rect = element.getBoundingClientRect();
     const x = rect.left + rect.width / 2 + (Math.random() * 8 - 4);
     const y = rect.top + rect.height / 2 + (Math.random() * 8 - 4);
@@ -155,10 +160,28 @@ class Humanizer {
       clientY: y,
     };
 
+    // React Fiber synthetic trigger if available
+    try {
+      const propKey = Object.keys(element).find(k => k.startsWith('__reactProps$') || k.startsWith('__reactEventHandlers$'));
+      if (propKey && element[propKey] && typeof element[propKey].onClick === 'function') {
+        element[propKey].onClick({
+          preventDefault: () => {},
+          stopPropagation: () => {},
+          target: element,
+          currentTarget: element,
+        });
+      }
+    } catch (e) {}
+
+    element.dispatchEvent(new PointerEvent('pointerdown', common));
     element.dispatchEvent(new MouseEvent('mousedown', common));
     await this.sleep(Math.floor(Math.random() * 80) + 50);
+    element.dispatchEvent(new PointerEvent('pointerup', common));
     element.dispatchEvent(new MouseEvent('mouseup', common));
     element.dispatchEvent(new MouseEvent('click', common));
+    if (typeof element.click === 'function') {
+      element.click();
+    }
   }
 }
 

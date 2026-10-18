@@ -26,6 +26,7 @@ let state = {
     aiWorkerUrl: DEFAULT_WORKER_URL,
     aiTone: 'engaging',
     aiStyle: 'moderate',
+    aiLanguage: 'darija',
     autoFirstComment: false,
     firstCommentText: '',
     safetyMode: 'balanced',
@@ -148,16 +149,23 @@ async function runCampaignLoop() {
     // 1. Prepare unique post text
     let finalPostText = state.config.postText;
 
-    if (state.config.useAiSpin) {
+    const rawInput = (state.config.postText || '').trim();
+    const isOnlyUrl = /^https?:\/\/[^\s]+$/i.test(rawInput);
+
+    if (isOnlyUrl) {
+      finalPostText = rawInput;
+    } else if (state.config.useAiSpin) {
       try {
-        addLog('info', `Generating unique variation using Cloudflare Workers AI...`);
+        const lang = state.config.aiLanguage || 'darija';
+        addLog('info', `Generating unique variation using Cloudflare Workers AI (${lang})...`);
         const spinRes = await fetch(`${state.config.aiWorkerUrl || DEFAULT_WORKER_URL}/api/ai/spin`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            text: state.config.postText,
+            text: rawInput,
             tone: state.config.aiTone || 'engaging',
             style: state.config.aiStyle || 'moderate',
+            language: lang,
           }),
         });
         const spinData = await spinRes.json();
@@ -357,6 +365,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         text: message.text,
         tone: message.tone || 'engaging',
         style: message.style || 'moderate',
+        language: message.language || state.config.aiLanguage || 'darija',
       }),
     })
       .then(r => r.json())

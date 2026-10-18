@@ -42,6 +42,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnClearLogs = document.getElementById('btnClearLogs');
 
   // Settings Elements
+  const composerLanguageSelect = document.getElementById('composerLanguageSelect');
+  const aiLanguageSelect = document.getElementById('aiLanguageSelect');
   const workerUrlInput = document.getElementById('workerUrlInput');
   const btnTestWorker = document.getElementById('btnTestWorker');
   const workerTestStatus = document.getElementById('workerTestStatus');
@@ -53,6 +55,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   const minDelayInput = document.getElementById('minDelayInput');
   const maxDelayInput = document.getElementById('maxDelayInput');
   const btnExportSettings = document.getElementById('btnExportSettings');
+
+  // Keep composer language & settings language in sync
+  if (composerLanguageSelect && aiLanguageSelect) {
+    composerLanguageSelect.addEventListener('change', () => {
+      aiLanguageSelect.value = composerLanguageSelect.value;
+    });
+    aiLanguageSelect.addEventListener('change', () => {
+      composerLanguageSelect.value = aiLanguageSelect.value;
+    });
+  }
 
   // Local State
   let currentPreset = 'balanced';
@@ -139,12 +151,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnAiSpinPreview.textContent = 'Spinning...';
     btnAiSpinPreview.disabled = true;
 
+    const lang = composerLanguageSelect?.value || aiLanguageSelect?.value || 'darija';
     chrome.runtime.sendMessage(
       {
         action: 'SPIN_POST_PREVIEW',
         text,
         tone: aiToneSelect.value,
         style: aiStyleSelect.value,
+        language: lang,
       },
       response => {
         btnAiSpinPreview.textContent = 'Spin Preview';
@@ -438,12 +452,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const selectedGroups = allGroups.filter(g => selectedGroupIds.has(g.id));
 
+    const isOnlyUrl = /^https?:\/\/[^\s]+$/i.test(postText);
+    const lang = aiLanguageSelect?.value || composerLanguageSelect?.value || 'darija';
+
     const config = {
       postText,
-      useAiSpin: true,
+      useAiSpin: !isOnlyUrl,
       aiWorkerUrl: workerUrlInput.value.trim(),
       aiTone: aiToneSelect.value,
       aiStyle: aiStyleSelect.value,
+      aiLanguage: lang,
       autoFirstComment: autoFirstCommentToggle.checked,
       firstCommentText: firstCommentInput.value.trim(),
       safetyMode: currentPreset,
@@ -554,6 +572,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         autoFirstCommentToggle.checked = true;
         firstCommentGroup.style.display = 'block';
         firstCommentInput.value = res.state.config.firstCommentText || '';
+      }
+      if (res.state.config?.aiLanguage) {
+        if (aiLanguageSelect) aiLanguageSelect.value = res.state.config.aiLanguage;
+        if (composerLanguageSelect) composerLanguageSelect.value = res.state.config.aiLanguage;
       }
     }
   });

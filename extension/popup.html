@@ -66,11 +66,20 @@
         <div class="ai-spin-header">
           <div class="ai-spin-title">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-            <span>Cloudflare Workers AI (Llama 3.2)</span>
+            <span>Cloudflare AI (Llama 3.2)</span>
           </div>
-          <button class="btn btn-secondary btn-xs" id="btnAiSpinPreview">
-            Spin Preview
-          </button>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <select id="composerLanguageSelect" style="font-size: 11px; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; color: #1e293b;">
+              <option value="darija" selected>🇲🇦 Darija</option>
+              <option value="arabic">🇸🇦 Arabic</option>
+              <option value="french">🇫🇷 Français</option>
+              <option value="english">🇬🇧 English</option>
+              <option value="auto">🌐 Auto</option>
+            </select>
+            <button class="btn btn-secondary btn-xs" id="btnAiSpinPreview">
+              Spin
+            </button>
+          </div>
         </div>
         <div class="ai-spin-preview" id="aiSpinPreview" style="display: none;">
           <p class="preview-text" id="aiSpinPreviewText"></p>
@@ -221,6 +230,17 @@
             <button class="btn btn-secondary btn-sm" id="btnTestWorker">Test</button>
           </div>
           <span class="help-text" id="workerTestStatus"></span>
+        </div>
+
+        <div class="field-group">
+          <label for="aiLanguageSelect">AI Output Language / Dialect</label>
+          <select id="aiLanguageSelect">
+            <option value="darija" selected>🇲🇦 Moroccan Darija (الدارجة المغربية - مستحسن للمغرب)</option>
+            <option value="arabic">🇸🇦 Standard Arabic (العربية الفصحى)</option>
+            <option value="french">🇫🇷 French (Français)</option>
+            <option value="english">🇬🇧 English</option>
+            <option value="auto">🌐 Auto-detect (Preserve input dialect)</option>
+          </select>
         </div>
 
         <div class="field-group">
